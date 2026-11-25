@@ -42,6 +42,7 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+        fresh = not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").fetchone()
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +70,12 @@ def init_db():
                 FOREIGN KEY(user_id) REFERENCES users(id)
             );
         """)
+        if fresh:
+            users, records, codes = conn.execute("""
+                SELECT (SELECT COUNT(*) FROM users), (SELECT COUNT(*) FROM records),
+                       (SELECT COUNT(*) FROM recovery_codes)
+            """).fetchone()
+            print(f"Initialized SQLite: users={users} records={records} recovery_codes={codes}", flush=True)
 
 init_db()
 
