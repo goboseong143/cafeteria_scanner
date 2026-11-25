@@ -7,6 +7,9 @@ import re
 import json
 import sqlite3
 import hashlib
+import hmac
+from werkzeug.security import check_password_hash, generate_password_hash
+from recovery import install_recovery
 import secrets
 from datetime import datetime, date
 
@@ -48,6 +51,12 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS recovery_codes (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                digest TEXT NOT NULL,
+                revision TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS records (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id    INTEGER NOT NULL,
@@ -64,8 +73,34 @@ def init_db():
 init_db()
 
 # ── 유틸 ──────────────────────────────────────────────────
-def hash_pw(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
+def password_matches(stored, password):
+    if re.fullmatch(r"[0-9a-f]{64}", stored):
+        return hmac.compare_digest(stored, hashlib.sha256(password.encode()).hexdigest())
+    return check_password_hash(stored, password)
+
+
+def password_stamp(stored):
+    return hmac.digest(app.secret_key.encode(), stored.encode(), "sha256").hex()
+
+
+@app.before_request
+def validate_login_session():
+    if "user_id" not in session or request.endpoint == "static":
+        return
+    with get_db() as conn:
+        row = conn.execute("SELECT username, password FROM users WHERE id=?", (session["user_id"],)).fetchone()
+    if row is None or session.get("username") != row["username"]:
+        session.clear()
+        return
+    stamp = password_stamp(row["password"])
+    if "password_stamp" not in session and re.fullmatch(r"[0-9a-f]{64}", row["password"]):
+        # Upgrade cookies from the original login flow while the original password is in use.
+        session["password_stamp"] = stamp
+    elif not hmac.compare_digest(session.get("password_stamp", ""), stamp):
+        session.clear()
+
+
+install_recovery(app, limiter, get_db, password_matches)
 
 def parse_image_data(image_data: str):
     if "," not in image_data:
@@ -129,7 +164,7 @@ def register():
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO users (username, password, class_name) VALUES (?, ?, ?)",
-                (username, hash_pw(password), class_name)
+                (username, generate_password_hash(password), class_name)
             )
         return jsonify({'success': True, 'message': '회원가입 완료!'})
     except sqlite3.IntegrityError:
@@ -144,13 +179,14 @@ def login():
 
     with get_db() as conn:
         user = conn.execute(
-            "SELECT * FROM users WHERE username=? AND password=?",
-            (username, hash_pw(password))
+            "SELECT * FROM users WHERE username=?", (username,)
         ).fetchone()
 
-    if not user:
+    if not user or not password_matches(user['password'], password):
         return jsonify({'error': '아이디 또는 비밀번호가 틀렸습니다.'}), 401
 
+    session.clear()
+    session['password_stamp'] = password_stamp(user['password'])
     session['user_id']    = user['id']
     session['username']   = user['username']
     session['class_name'] = user['class_name']
