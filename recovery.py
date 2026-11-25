@@ -6,6 +6,9 @@ from flask import make_response, redirect, render_template, request, session, ur
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
+MIN_RECOVERY_CODE_LENGTH = 6
+
+
 def install_recovery(app, limiter, get_db, password_matches):
     dummy_digest = generate_password_hash(secrets.token_urlsafe(32))
 
@@ -13,7 +16,8 @@ def install_recovery(app, limiter, get_db, password_matches):
         if "recovery_csrf" not in session:
             session["recovery_csrf"] = secrets.token_urlsafe(32)
         response = make_response(render_template("recovery.html", mode=mode, message=message,
-                                                 csrf=session["recovery_csrf"]), status)
+                                                 csrf=session["recovery_csrf"],
+                                                 code_minimum=MIN_RECOVERY_CODE_LENGTH), status)
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -32,8 +36,8 @@ def install_recovery(app, limiter, get_db, password_matches):
             return screen("setup", "페이지를 새로 열어 다시 시도해 주세요.", 403)
         password = request.form.get("password", "")
         code = request.form.get("code", "")
-        if not 12 <= len(code) <= 128 or not code.strip() or code in (password, session["username"]):
-            return screen("setup", "아이디·비밀번호와 다른 12~128자의 복구 코드를 입력해 주세요.", 400)
+        if not MIN_RECOVERY_CODE_LENGTH <= len(code) <= 128 or not code.strip() or code in (password, session["username"]):
+            return screen("setup", f"아이디·비밀번호와 다른 {MIN_RECOVERY_CODE_LENGTH}~128자의 복구 코드를 입력해 주세요.", 400)
         if code != request.form.get("confirm", ""):
             return screen("setup", "두 복구 코드가 일치하지 않습니다.", 400)
         with get_db() as conn:
@@ -72,7 +76,7 @@ def install_recovery(app, limiter, get_db, password_matches):
                 SELECT u.id, r.digest, r.revision FROM users u
                 JOIN recovery_codes r ON r.user_id=u.id WHERE u.username=?
             """, (username,)).fetchone()
-        valid = 12 <= len(code) <= 128 and check_password_hash(row["digest"] if row else dummy_digest, code)
+        valid = MIN_RECOVERY_CODE_LENGTH <= len(code) <= 128 and check_password_hash(row["digest"] if row else dummy_digest, code)
         if not valid or not row:
             return screen("verify", "아이디와 복구 코드를 확인해 주세요.", 400)
         session["reset_grant"] = {"id": row["id"], "revision": row["revision"], "expires": time.time() + 300}
