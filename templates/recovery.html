@@ -33,15 +33,15 @@ a { color: #184dad; } [role="alert"] { color: #a02123; }
 <form method="post" action="{{ {'setup':'/account/recovery-code','verify':'/forgot-password','reset':'/reset-password'}[mode] }}">
 <input type="hidden" name="csrf" value="{{ csrf }}">
 {% if mode == "setup" %}
-<p>나만 아는 12자 이상의 코드를 직접 입력하세요. 새 코드를 저장하면 이전 코드는 만료됩니다.</p>
+<p>나만 아는 {{ code_minimum }}자 이상의 코드를 직접 입력하세요. 새 코드를 저장하면 이전 코드는 만료됩니다.</p>
 <label for="password">현재 비밀번호</label><input id="password" name="password" type="password" autocomplete="current-password" required>
-{{ field("code", "내 복구 코드", "new-password", minimum=12) }}
-{{ field("confirm", "복구 코드 확인", "new-password", minimum=12) }}
+{{ field("code", "내 복구 코드", "new-password", minimum=code_minimum) }}
+{{ field("confirm", "복구 코드 확인", "new-password", minimum=code_minimum) }}
 <button>복구 코드 저장</button>
 {% elif mode == "verify" %}
 <p>로그인 후 미리 설정한 복구 코드를 입력하세요.</p>
 {{ field("username", "아이디", "username", "text", maximum=20) }}
-{{ field("code", "복구 코드", "off", minimum=12) }}
+{{ field("code", "복구 코드", "off", minimum=code_minimum) }}
 <button>코드 확인</button>
 {% else %}
 <p>코드를 확인했어요. 5분 안에 새 비밀번호를 설정하세요.</p>

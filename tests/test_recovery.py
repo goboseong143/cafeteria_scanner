@@ -65,6 +65,19 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.login(self.guest, "original").status_code, 401)
         self.assertEqual(self.login(self.guest, "replacement").status_code, 200)
 
+    def test_six_digit_code(self):
+        code = "038527"
+        self.assertEqual(self.setup_code(code[:5]).status_code, 400)
+        setup = self.client.get("/account/recovery-code").get_data(as_text=True)
+        verify = self.guest.get("/forgot-password").get_data(as_text=True)
+        for form in (setup, verify):
+            self.assertRegex(form, r'name="code"[^>]*minlength="6"')
+        self.assertEqual(self.setup_code(code).status_code, 303)
+        self.assertEqual(self.verify(self.guest, code).status_code, 303)
+        result = self.post_form(self.guest, "/reset-password", password="changed", confirm="changed")
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(self.login(self.guest, "changed").status_code, 200)
+
     def test_rotation_and_expiry(self):
         self.assertEqual(self.setup_code(self.code).status_code, 303)
         self.assertEqual(self.verify(self.guest, self.code).status_code, 303)
